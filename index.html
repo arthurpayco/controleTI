@@ -244,7 +244,13 @@
   .toolbar input[type=text],.toolbar select{border:1px solid var(--sector-line);border-radius:8px;padding:8px 10px;font-size:13.5px;font-family:inherit;background:#fff}
   .toolbar input[type=text]:focus,.toolbar select:focus{outline:none;border-color:var(--olive)}
   #equipSearch{min-width:250px}
-  .filter-note{font-size:12px;color:var(--ink-soft);margin:8px 0 0}
+  .filter-note{font-size:12px;color:var(--ink-soft);margin:0;font-weight:600}
+  table.grid-tbl thead .filter-row th{background:#eef2ec;padding:6px 8px;border-top:1px solid #cdd7cd;text-transform:none;font-weight:400}
+  .filter-row .colf{width:100%;box-sizing:border-box;border:1px solid var(--sector-line);border-radius:6px;padding:6px 8px;font-size:12px;font-family:inherit;background:#fff;color:var(--ink);font-weight:400}
+  .filter-row .colf::placeholder{color:#9aa89e;font-weight:400}
+  .filter-row .colf:focus{outline:none;border-color:var(--olive);box-shadow:0 0 0 2px rgba(136,154,72,.15)}
+  .colf-clear{border:1px solid var(--sector-line);background:#fff;border-radius:6px;padding:5px 9px;font-size:11px;color:var(--ink-soft);cursor:pointer;font-family:inherit;font-weight:600}
+  .colf-clear:hover{background:var(--sector);color:var(--ink)}
   .toolbar .chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);font-weight:600}
   .btn-x{background:var(--forest);color:#fff;border:none;border-radius:9px;padding:10px 15px;font-size:13px;font-weight:700;display:inline-flex;gap:7px;align-items:center}
   .btn-x:hover{background:var(--forest2)}
@@ -607,7 +613,7 @@ if(!state||!state.areas||!state.gerais){state=seed();}
 migrate(state);
 
 let editMode=false, drawerState=null, expandedId=null;
-let equipFilter='', equipTipoFilter='';
+let equipColFilter={};
 function save(){try{localStorage.setItem(STORE_KEY,JSON.stringify(state));}catch(e){}if(typeof ghSchedulePush==='function')ghSchedulePush();}
 
 /* índice */
@@ -975,52 +981,67 @@ function svgFlowChart(months){
 }
 
 /* ============ TABELA DE EQUIPAMENTOS ============ */
-function equipTableHTML(editable){
-  const asg=equipAssignment(), list=state.equipamentos||[];
-  const ro=editMode?'':'readonly', dis=editMode?'':'disabled';
-  const vagos=list.filter(e=>!asg[e.patrimonio]).length;
-  const ft=(equipFilter||'').trim().toLowerCase(), tf=equipTipoFilter||'';
+function equipHasFilter(){return Object.keys(equipColFilter).some(k=>String(equipColFilter[k]||'').trim()!=='');}
+function equipFiltered(){
+  const asg=equipAssignment(), list=state.equipamentos||[], F=equipColFilter;
+  const m=(v,f)=>{f=String(f||'').trim().toLowerCase();return !f||String(v||'').toLowerCase().includes(f);};
   const filtered=list.filter(e=>{
-    if(tf && (e.tipo||'')!==tf) return false;
-    if(!ft) return true;
     const a=asg[e.patrimonio];
-    return [e.patrimonio,e.tipo,e.nome,e.specs,(a?a.usuario:''),(a?a.area:'')].join(' ').toLowerCase().includes(ft);
+    if(F.tipo && (e.tipo||'')!==F.tipo) return false;
+    return m(e.patrimonio,F.patrimonio)&&m(e.nome,F.nome)&&m(e.specs,F.specs)
+      &&m(e.valor?String(e.valor):'',F.valor)&&m(e.dataAquisicao,F.aquisicao)
+      &&m(a?(a.usuario+' '+a.area):'vago',F.atribuido);
   });
-  const filterNote=(ft||tf)?`<div class="filter-note">Mostrando <b>${filtered.length}</b> de ${list.length} equipamento(s).</div>`:'';
-  const banner=`<div class="vago-banner">Equipamentos: <b>${list.length}</b> &nbsp;·&nbsp; Em uso: <b>${list.length-vagos}</b> &nbsp;·&nbsp; Vagos (livres p/ novas vagas): <b>${vagos}</b> &nbsp;·&nbsp; Patrimônio total: <b>${money(catalogAssetTotal())}</b></div>`+filterNote;
+  return {asg,list,filtered};
+}
+function equipRowsHTML(){
+  const {asg,list,filtered}=equipFiltered();
+  const ro=editMode?'':'readonly', dis=editMode?'':'disabled';
+  if(!list.length) return `<tr><td colspan="8" style="padding:16px" class="empty">Nenhum equipamento cadastrado.</td></tr>`;
+  if(!filtered.length) return `<tr><td colspan="8" style="padding:16px" class="empty">Nenhum equipamento corresponde ao filtro.</td></tr>`;
   let rows='';
-  if(!list.length) rows=`<tr><td colspan="9" style="padding:16px" class="empty">Nenhum equipamento cadastrado.</td></tr>`;
-  else if(!filtered.length) rows=`<tr><td colspan="9" style="padding:16px" class="empty">Nenhum equipamento corresponde ao filtro.</td></tr>`;
   filtered.forEach(e=>{ const a=asg[e.patrimonio];
     const status=a?`<span class="status uso">Em uso</span>`:`<span class="status vago">Vago</span>`;
-    if(editable){
-      rows+=`<tr>
-        <td style="min-width:110px"><input data-id="${e.id}" data-field="patrimonio" value="${escapeAttr(e.patrimonio)}" ${ro}></td>
-        <td style="min-width:120px"><select data-id="${e.id}" data-field="tipo" ${dis}>${EQUIP_TIPOS.map(t=>`<option ${e.tipo===t?'selected':''}>${t}</option>`).join('')}</select></td>
-        <td style="min-width:150px"><input data-id="${e.id}" data-field="nome" value="${escapeAttr(e.nome)}" ${ro}></td>
-        <td style="min-width:220px"><input data-id="${e.id}" data-field="specs" value="${escapeAttr(e.specs)}" placeholder='ex.: Tela 15" · 16GB RAM · 256GB SSD' ${ro}></td>
-        <td style="min-width:100px"><input class="money-in" type="number" step="0.01" data-id="${e.id}" data-field="valor" data-num value="${e.valor||0}" ${ro}></td>
-        <td style="min-width:130px"><input type="date" data-id="${e.id}" data-field="dataAquisicao" value="${escapeAttr(e.dataAquisicao||'')}" ${ro}></td>
-        <td>${a?(escapeAttr(a.usuario)+'<div class="mini">'+escapeAttr(a.area)+'</div>'):status}</td>
-        <td class="edit-only" style="text-align:right"><button class="del" data-delequip="${e.id}">excluir</button></td>
-      </tr>`;
-    } else {
-      rows+=`<tr>
-        <td><span class="code-mono">${escapeAttr(e.patrimonio)}</span></td>
-        <td>${escapeAttr(e.tipo)}</td>
-        <td>${escapeAttr(e.nome)}</td>
-        <td>${escapeAttr(e.specs)}</td>
-        <td>${e.valor?money(Number(e.valor)):'—'}</td>
-        <td>${a?escapeAttr(a.usuario):'—'}</td>
-        <td>${a?escapeAttr(a.area):'—'}</td>
-        <td>${status}</td>
-      </tr>`;
-    }
+    rows+=`<tr>
+      <td style="min-width:110px"><input data-id="${e.id}" data-field="patrimonio" value="${escapeAttr(e.patrimonio)}" ${ro}></td>
+      <td style="min-width:120px"><select data-id="${e.id}" data-field="tipo" ${dis}>${EQUIP_TIPOS.map(t=>`<option ${e.tipo===t?'selected':''}>${t}</option>`).join('')}</select></td>
+      <td style="min-width:150px"><input data-id="${e.id}" data-field="nome" value="${escapeAttr(e.nome)}" ${ro}></td>
+      <td style="min-width:220px"><input data-id="${e.id}" data-field="specs" value="${escapeAttr(e.specs)}" placeholder='ex.: Tela 15" · 16GB RAM · 256GB SSD' ${ro}></td>
+      <td style="min-width:100px"><input class="money-in" type="number" step="0.01" data-id="${e.id}" data-field="valor" data-num value="${e.valor||0}" ${ro}></td>
+      <td style="min-width:130px"><input type="date" data-id="${e.id}" data-field="dataAquisicao" value="${escapeAttr(e.dataAquisicao||'')}" ${ro}></td>
+      <td>${a?(escapeAttr(a.usuario)+'<div class="mini">'+escapeAttr(a.area)+'</div>'):status}</td>
+      <td class="edit-only" style="text-align:right"><button class="del" data-delequip="${e.id}">excluir</button></td>
+    </tr>`;
   });
-  const head=editable
-    ? `<tr><th>Patrimônio</th><th>Tipo</th><th>Nome / modelo</th><th>Especificações técnicas</th><th>Valor</th><th>Aquisição</th><th>Atribuído a</th><th class="edit-only"></th></tr>`
-    : `<tr><th>Patrimônio</th><th>Tipo</th><th>Nome</th><th>Especificações</th><th>Valor</th><th>Usuário</th><th>Área</th><th>Status</th></tr>`;
-  return banner+`<table class="grid-tbl">${head}${rows}</table>`;
+  return rows;
+}
+function equipApplyFilter(){
+  const tb=document.getElementById('equipTbody'); if(tb) tb.innerHTML=equipRowsHTML();
+  const {list,filtered}=equipFiltered();
+  const c=document.getElementById('equipFilterCount'); if(c) c.textContent=equipHasFilter()?`Mostrando ${filtered.length} de ${list.length} equipamento(s).`:'';
+  const cl=document.getElementById('equipClearInline'); if(cl) cl.style.display=equipHasFilter()?'':'none';
+}
+function equipTableHTML(){
+  const list=state.equipamentos||[], asg=equipAssignment();
+  const vagos=list.filter(e=>!asg[e.patrimonio]).length;
+  const F=equipColFilter;
+  const banner=`<div class="vago-banner">Equipamentos: <b>${list.length}</b> &nbsp;·&nbsp; Em uso: <b>${list.length-vagos}</b> &nbsp;·&nbsp; Vagos (livres p/ novas vagas): <b>${vagos}</b> &nbsp;·&nbsp; Patrimônio total: <b>${money(catalogAssetTotal())}</b> &nbsp; <span id="equipFilterCount" class="filter-note" style="display:inline"></span></div>`;
+  const tipoOpts=['<option value="">Todos</option>'].concat(EQUIP_TIPOS.map(t=>`<option value="${t}" ${F.tipo===t?'selected':''}>${t}</option>`)).join('');
+  const fin=(k,ph)=>`<input class="colf" data-colf="${k}" value="${escapeAttr(F[k]||'')}" placeholder="${ph}">`;
+  const head=`<tr>
+      <th>Patrimônio</th><th>Tipo</th><th>Nome / modelo</th><th>Especificações técnicas</th><th>Valor</th><th>Aquisição</th><th>Atribuído a</th><th class="edit-only"></th>
+    </tr>
+    <tr class="filter-row">
+      <th>${fin('patrimonio','filtrar')}</th>
+      <th><select class="colf" data-colf="tipo">${tipoOpts}</select></th>
+      <th>${fin('nome','filtrar')}</th>
+      <th>${fin('specs','filtrar')}</th>
+      <th>${fin('valor','filtrar')}</th>
+      <th>${fin('aquisicao','filtrar')}</th>
+      <th>${fin('atribuido','nome, área ou “vago”')}</th>
+      <th class="edit-only" style="text-align:right"><button class="colf-clear" id="equipClearInline" title="Limpar filtros" style="display:${equipHasFilter()?'':'none'}">limpar</button></th>
+    </tr>`;
+  return banner+`<table class="grid-tbl equip-tbl"><thead>${head}</thead><tbody id="equipTbody">${equipRowsHTML()}</tbody></table>`;
 }
 
 /* ============ RENDER DAS ABAS ============ */
@@ -1058,22 +1079,18 @@ function renderAnalise(){
     ${softwareRelationHTML()}
   `;
 }
-function renderEquipTable(){ const w=document.getElementById('equipTableWrap'); if(w) w.innerHTML=equipTableHTML(true); }
+function renderEquipTable(){ const w=document.getElementById('equipTableWrap'); if(w) w.innerHTML=equipTableHTML(); }
 function renderEquip(){
-  const tipoOpts=['<option value="">Todos os tipos</option>'].concat(EQUIP_TIPOS.map(t=>`<option value="${t}" ${equipTipoFilter===t?'selected':''}>${t}</option>`)).join('');
   document.getElementById('tab-equip').innerHTML=`
     <h2 class="sec">Cadastro de equipamentos</h2>
-    <p class="sub">Registre cada equipamento com suas informações técnicas. No organograma, basta informar o <b>código de patrimônio</b> na pessoa que as specs são puxadas automaticamente daqui.</p>
+    <p class="sub">Registre cada equipamento com suas informações técnicas. Use os campos de <b>filtro no cabeçalho da tabela</b> (como no Excel) para localizar por patrimônio, tipo, nome/modelo, especificações etc.</p>
     <div class="toolbar">
       <button class="btn-x" id="addEquipBtn">＋ Novo equipamento</button>
-      <div class="fld"><label>Filtrar</label><input type="text" id="equipSearch" placeholder="nome/modelo, patrimônio, tipo, usuário…" value="${escapeAttr(equipFilter)}"></div>
-      <div class="fld"><label>Tipo</label><select id="equipTipoFilter">${tipoOpts}</select></div>
-      ${(equipFilter||equipTipoFilter)?'<button class="btn-x ghost" id="equipClear">Limpar</button>':''}
       <div style="flex:1"></div>
       <span class="mini" style="align-self:center">${editMode?'Edite direto na tabela abaixo.':'Ative o Modo edição (topo) para incluir/alterar.'}</span>
       <button class="btn-x gold" id="excelBtn3">⤓ Exportar Excel</button>
     </div>
-    <div id="equipTableWrap">${equipTableHTML(true)}</div>
+    <div id="equipTableWrap">${equipTableHTML()}</div>
   `;
 }
 
@@ -1184,13 +1201,14 @@ document.addEventListener('click',(ev)=>{
 
 /* edição de campos */
 document.addEventListener('input',(ev)=>{
-  if(ev.target.id==='equipSearch'){ equipFilter=ev.target.value; renderEquipTable(); }
+  const t=ev.target;
+  if(t.classList&&t.classList.contains('colf')&&t.tagName==='INPUT'){ equipColFilter[t.dataset.colf]=t.value; equipApplyFilter(); }
 });
 document.addEventListener('change',(ev)=>{
   const el=ev.target;
   if(el.id==='empresaNome'){state.empresa=el.value;save();return;}
   if(el.id==='flowStart'){state.flow.start=el.value;save();renderAnalise();return;}
-  if(el.id==='equipTipoFilter'){equipTipoFilter=el.value;renderEquip();setTimeout(()=>{const s=document.getElementById('equipSearch');if(s){s.focus();s.setSelectionRange(s.value.length,s.value.length);}},0);return;}
+  if(el.classList&&el.classList.contains('colf')){equipColFilter[el.dataset.colf]=el.value;equipApplyFilter();return;}
   if(el.id==='flowEnd'){state.flow.end=el.value;save();renderAnalise();return;}
   const id=el.dataset.id, field=el.dataset.field;
   if(!id||!field)return;
@@ -1258,7 +1276,7 @@ document.addEventListener('click',(ev)=>{
   const tab=ev.target.closest('.tab'); if(tab){ switchTab(tab.dataset.tab); return; }
   if(ev.target.closest('#excelBtn,#excelBtn2,#excelBtn3')){ exportExcel(); return; }
   if(ev.target.closest('#addEquipBtn')){ addEquipment(); return; }
-  if(ev.target.closest('#equipClear')){ equipFilter=''; equipTipoFilter=''; renderEquip(); return; }
+  if(ev.target.closest('#equipClearInline')){ equipColFilter={}; renderEquipTable(); return; }
   const de=ev.target.closest('[data-delequip]'); if(de){ if(!editMode)return; deleteEquipment(de.dataset.delequip); return; }
 });
 
