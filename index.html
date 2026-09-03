@@ -241,10 +241,16 @@
   .toolbar .fld{display:flex;flex-direction:column;gap:4px}
   .toolbar label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);font-weight:700}
   .toolbar input[type=month]{border:1px solid var(--sector-line);border-radius:8px;padding:8px 10px;font-size:13.5px}
+  .toolbar input[type=text],.toolbar select{border:1px solid var(--sector-line);border-radius:8px;padding:8px 10px;font-size:13.5px;font-family:inherit;background:#fff}
+  .toolbar input[type=text]:focus,.toolbar select:focus{outline:none;border-color:var(--olive)}
+  #equipSearch{min-width:250px}
+  .filter-note{font-size:12px;color:var(--ink-soft);margin:8px 0 0}
   .toolbar .chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);font-weight:600}
   .btn-x{background:var(--forest);color:#fff;border:none;border-radius:9px;padding:10px 15px;font-size:13px;font-weight:700;display:inline-flex;gap:7px;align-items:center}
   .btn-x:hover{background:var(--forest2)}
   .btn-x.gold{background:var(--olive);color:#fff}
+  .btn-x.ghost{background:transparent;color:var(--ink-soft);border:1px solid var(--sector-line)}
+  .btn-x.ghost:hover{background:var(--sector);color:var(--ink)}
 
   .charts{display:grid;grid-template-columns:1fr 1fr;gap:20px}
   @media(max-width:960px){.charts{grid-template-columns:1fr}}
@@ -601,6 +607,7 @@ if(!state||!state.areas||!state.gerais){state=seed();}
 migrate(state);
 
 let editMode=false, drawerState=null, expandedId=null;
+let equipFilter='', equipTipoFilter='';
 function save(){try{localStorage.setItem(STORE_KEY,JSON.stringify(state));}catch(e){}if(typeof ghSchedulePush==='function')ghSchedulePush();}
 
 /* índice */
@@ -972,10 +979,19 @@ function equipTableHTML(editable){
   const asg=equipAssignment(), list=state.equipamentos||[];
   const ro=editMode?'':'readonly', dis=editMode?'':'disabled';
   const vagos=list.filter(e=>!asg[e.patrimonio]).length;
-  const banner=`<div class="vago-banner">Equipamentos: <b>${list.length}</b> &nbsp;·&nbsp; Em uso: <b>${list.length-vagos}</b> &nbsp;·&nbsp; Vagos (livres p/ novas vagas): <b>${vagos}</b> &nbsp;·&nbsp; Patrimônio total: <b>${money(catalogAssetTotal())}</b></div>`;
+  const ft=(equipFilter||'').trim().toLowerCase(), tf=equipTipoFilter||'';
+  const filtered=list.filter(e=>{
+    if(tf && (e.tipo||'')!==tf) return false;
+    if(!ft) return true;
+    const a=asg[e.patrimonio];
+    return [e.patrimonio,e.tipo,e.nome,e.specs,(a?a.usuario:''),(a?a.area:'')].join(' ').toLowerCase().includes(ft);
+  });
+  const filterNote=(ft||tf)?`<div class="filter-note">Mostrando <b>${filtered.length}</b> de ${list.length} equipamento(s).</div>`:'';
+  const banner=`<div class="vago-banner">Equipamentos: <b>${list.length}</b> &nbsp;·&nbsp; Em uso: <b>${list.length-vagos}</b> &nbsp;·&nbsp; Vagos (livres p/ novas vagas): <b>${vagos}</b> &nbsp;·&nbsp; Patrimônio total: <b>${money(catalogAssetTotal())}</b></div>`+filterNote;
   let rows='';
   if(!list.length) rows=`<tr><td colspan="9" style="padding:16px" class="empty">Nenhum equipamento cadastrado.</td></tr>`;
-  list.forEach(e=>{ const a=asg[e.patrimonio];
+  else if(!filtered.length) rows=`<tr><td colspan="9" style="padding:16px" class="empty">Nenhum equipamento corresponde ao filtro.</td></tr>`;
+  filtered.forEach(e=>{ const a=asg[e.patrimonio];
     const status=a?`<span class="status uso">Em uso</span>`:`<span class="status vago">Vago</span>`;
     if(editable){
       rows+=`<tr>
@@ -1042,17 +1058,22 @@ function renderAnalise(){
     ${softwareRelationHTML()}
   `;
 }
+function renderEquipTable(){ const w=document.getElementById('equipTableWrap'); if(w) w.innerHTML=equipTableHTML(true); }
 function renderEquip(){
+  const tipoOpts=['<option value="">Todos os tipos</option>'].concat(EQUIP_TIPOS.map(t=>`<option value="${t}" ${equipTipoFilter===t?'selected':''}>${t}</option>`)).join('');
   document.getElementById('tab-equip').innerHTML=`
     <h2 class="sec">Cadastro de equipamentos</h2>
     <p class="sub">Registre cada equipamento com suas informações técnicas. No organograma, basta informar o <b>código de patrimônio</b> na pessoa que as specs são puxadas automaticamente daqui.</p>
     <div class="toolbar">
       <button class="btn-x" id="addEquipBtn">＋ Novo equipamento</button>
+      <div class="fld"><label>Filtrar</label><input type="text" id="equipSearch" placeholder="nome/modelo, patrimônio, tipo, usuário…" value="${escapeAttr(equipFilter)}"></div>
+      <div class="fld"><label>Tipo</label><select id="equipTipoFilter">${tipoOpts}</select></div>
+      ${(equipFilter||equipTipoFilter)?'<button class="btn-x ghost" id="equipClear">Limpar</button>':''}
       <div style="flex:1"></div>
       <span class="mini" style="align-self:center">${editMode?'Edite direto na tabela abaixo.':'Ative o Modo edição (topo) para incluir/alterar.'}</span>
       <button class="btn-x gold" id="excelBtn3">⤓ Exportar Excel</button>
     </div>
-    ${equipTableHTML(true)}
+    <div id="equipTableWrap">${equipTableHTML(true)}</div>
   `;
 }
 
@@ -1162,10 +1183,14 @@ document.addEventListener('click',(ev)=>{
 });
 
 /* edição de campos */
+document.addEventListener('input',(ev)=>{
+  if(ev.target.id==='equipSearch'){ equipFilter=ev.target.value; renderEquipTable(); }
+});
 document.addEventListener('change',(ev)=>{
   const el=ev.target;
   if(el.id==='empresaNome'){state.empresa=el.value;save();return;}
   if(el.id==='flowStart'){state.flow.start=el.value;save();renderAnalise();return;}
+  if(el.id==='equipTipoFilter'){equipTipoFilter=el.value;renderEquip();setTimeout(()=>{const s=document.getElementById('equipSearch');if(s){s.focus();s.setSelectionRange(s.value.length,s.value.length);}},0);return;}
   if(el.id==='flowEnd'){state.flow.end=el.value;save();renderAnalise();return;}
   const id=el.dataset.id, field=el.dataset.field;
   if(!id||!field)return;
@@ -1233,6 +1258,7 @@ document.addEventListener('click',(ev)=>{
   const tab=ev.target.closest('.tab'); if(tab){ switchTab(tab.dataset.tab); return; }
   if(ev.target.closest('#excelBtn,#excelBtn2,#excelBtn3')){ exportExcel(); return; }
   if(ev.target.closest('#addEquipBtn')){ addEquipment(); return; }
+  if(ev.target.closest('#equipClear')){ equipFilter=''; equipTipoFilter=''; renderEquip(); return; }
   const de=ev.target.closest('[data-delequip]'); if(de){ if(!editMode)return; deleteEquipment(de.dataset.delequip); return; }
 });
 
